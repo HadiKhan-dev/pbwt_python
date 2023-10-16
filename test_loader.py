@@ -7,10 +7,8 @@ import xgboost as xgb
 #%%
 
 
-omni_data = vcf_reader.get_omni_data()
-omni_tests = vcf_reader.get_vcf_data_from_file("../pbwt_hkhan/vcf_data/omni10.vcf.gz")
-#%%
-omni_other = omni_data[1:]
+omni_data = vcf_reader.get_vcf_data()
+omni_tests = vcf_reader.get_vcf_data("../pbwt_hkhan/vcf_data/omni10.vcf.gz")
 #%%
 def get_allele_freqs(data):
     
@@ -28,18 +26,23 @@ def get_allele_freqs(data):
     
     return freqs
 
-allele_freqs = get_allele_freqs(omni_data)
+allele_freqs = get_allele_freqs(omni_data[1][1])
     
 #%%
 full_sites = vcf_reader.read_sites_file("../pbwt_hkhan/vcf_data/omni4k-10.sites")
 illu_sites = vcf_reader.read_sites_file("../pbwt_hkhan/vcf_data/illu1M.sites")
 
-site_intersection = sorted(list(set(full_sites[0]) & set(illu_sites[0])))
+common_sites = sorted(list(set(full_sites[0]) & set(illu_sites[0])))
+
+site_intersection = []
+
+for item in common_sites:
+    site_intersection.append(vcf_reader.ChromPos("20",item))
 
 index_keep = []
 
 for thing in site_intersection:
-    index_keep.append(full_sites[1][thing])
+    index_keep.append(full_sites[1][thing.position])
 
 index_keep = sorted(index_keep)    
 

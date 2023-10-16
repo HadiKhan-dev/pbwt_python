@@ -5,49 +5,17 @@ import math
 import random
 import scipy.optimize
 import sys
-from Bio import SeqIO
-from fasta_parse import get_variations
 import log_res
 import pympler.asizeof as sizer
 import vcf
 import os
 import pathlib
+import gzip
+
+import vcf_reader
 
 np.set_printoptions(threshold=sys.maxsize)
 
-#%%
-
-num_samples = 100
-num_test = 10
-
-ts = msprime.sim_ancestry(samples=num_samples, population_size=40000,
-                          recombination_rate = 1.25*10**-8, ploidy=1,sequence_length=10**7)
-mts = msprime.sim_mutations(ts, rate=1.25*10**-8)
-
-bin_data = mts.genotype_matrix().transpose()
-
-bin_data[bin_data > 1] = 1
-
-
-np.random.shuffle(bin_data)
-
-test_seqs = bin_data[:num_test]
-test_seq = bin_data[0]
-
-
-full_bin_data = bin_data
-
-bin_data = bin_data[num_test:,:]
-
-rev_bin_data = np.fliplr(bin_data)
-
-bin_data = bin_data.transpose()
-test_seqs = test_seqs.transpose()
-
-sites = list([m.position for m in mts.sites()])
-
-m = bin_data.shape[0]
-n = bin_data.shape[1]
 #%%
 
 def write_sites(n,keep_percentage,path):
@@ -62,9 +30,16 @@ def write_sites(n,keep_percentage,path):
     file_to_write.close()
 
 def write_vcf(data,path):
+    "Write a VCF file to the path given"
     
-    m = data.shape[0]
-    n = data.shape[1]
+    if path[-3:] == ".gz":
+        compressed = True
+        full_path = path
+        path = path[:-3]
+        
+    
+    m = data.shape[1]
+    n = data.shape[0]
     num_diploid = int(n/2)
     
     pathlib.Path("new_test.vcf").unlink(missing_ok=True)
@@ -85,7 +60,7 @@ def write_vcf(data,path):
     call_tuple = vcf.model.make_calldata_tuple(["GT"])
                 
     for i in range(m):
-        data_row = data[i]
+        data_row = data[:,i]
         sample_indexes = [str(i) for i in range(num_diploid)]
         num1 = 0
         sample_list = []
@@ -114,27 +89,123 @@ def write_vcf(data,path):
         write.write_record(new_row)
     #vcf.model._Record(CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO, FORMAT, sample_indexes)
     write.flush()
-    
-    wr
+    write.close()
     
     pathlib.Path("new_test.vcf").unlink(missing_ok=True)
     
+    if compressed:
+        op = open(path,"rb")
+        compressed_file = gzip.open(full_path,"wb")
+        compressed_file.writelines(op)
+        compressed_file.close()
+        op.close()
+        
+        pathlib.Path(path).unlink(missing_ok=True)
+    
+    
+def filter_vcf(vcf_path,keep_locations,save_path):
+    """
+    Filters a VCF to keep only those rows which are in 
+    the keep_locations and saves it at save_path
+    """
+    
+    def test_loc_in_set(row,location_set):
+        
+        if (str(row["#CHROM"]),str(row["POS"])) in location_set:
+
+            return True
+        return False
+    
+    if save_path[-3:] == ".gz":
+        compressed = True
+        full_path = save_path
+        save_path = save_path[:-3]
+    
+    loc_set = set([])
+    
+    for item in keep_locations:
+        loc_set.add((item.chromosome,item.position))
+    
+    names = vcf_reader.get_vcf_names(vcf_path)
+    
+    format_index = names.index("FORMAT")
+    
+    sample_names = names[format_index+1:]
     
 
-#%%
-write_vcf(bin_data,"haploid100.vcf")
-write_vcf(test_seqs,"haploid100_test.vcf")
-#%%
-write_sites(97841,100,"haploid10000_fullsites.sites")
-write_sites(97841,28,"haploid10000_testsites.sites")
-#%%
-# read = vcf.Reader(open('omni10.vcf', 'r'))
-
-# for record in read:
-#     x = record.samples[0].data[0]
-#     print(x)
-#     print(type(x))
-#     break
-
+    vm = gzip.open(vcf_path)
+    lines = vm.readlines()
+    vm.close()
+    
+    comments = []
+    
+    for line in lines:
+        if line[:2] == b"##":
+            comments.append(line)
+    comments.append(b"##File filtered to keep only a portion of sites\n")
+    
+    pathlib.Path("intermediate.vcf").unlink(missing_ok=True)
+    
+    file_to_write = open("intermediate.vcf", 'w')    
+    
+    for comment in comments:
+        file_to_write.write(comment.decode("utf-8"))
+    
+    for name in names:
+        file_to_write.write(str(name)+"	")
+    file_to_write.write("\n")
+    file_to_write.close()
+    
+    vcf_df = vcf_reader.get_raw_vcf_data(vcf_path)[1]
+    
+    filtered_df = vcf_df[vcf_df.apply(lambda x: test_loc_in_set(x,loc_set),axis=1)]
+    
+    read = vcf.Reader(open("intermediate.vcf", 'r'))
+    write = vcf.Writer(open(save_path, 'w'), read)
+    
+    call_tuple = vcf.model.make_calldata_tuple(["GT"])
+    
+    for index,row in filtered_df.iterrows():
+        
+        alter = vcf.model._Substitution(row["ALT"])
+        
+        sample_vals = []
+        
+        for name in sample_names:
+            
+            call_str = row[name]
+            call_data = call_tuple(call_str)
+            call = vcf.model._Call(row["POS"],name,call_data)
+            
+            sample_vals.append(call)
+        
+        info_dict = {}
+        
+        for info in row["INFO"].split(";"):
+            key,value = info.split("=")
+            if key == "AC":
+                info_dict[key] = [value]
+            else:
+                info_dict[key] = value
+            
+        
+        new_row = vcf.model._Record(row["#CHROM"],row["POS"], None, row["REF"], [alter], None, row["FILTER"], info_dict, row["FORMAT"], sample_names,samples=sample_vals)
+    
+        write.write_record(new_row)
+        
+    write.flush()
+    write.close()
+    pathlib.Path("intermediate.vcf").unlink(missing_ok=True)
+    
+    if compressed:
+        op = open(save_path,"rb")
+        compressed_file = gzip.open(full_path,"wb")
+        compressed_file.writelines(op)
+        compressed_file.close()
+        op.close()
+        
+        pathlib.Path(save_path).unlink(missing_ok=True)
+        
+        
 
 
