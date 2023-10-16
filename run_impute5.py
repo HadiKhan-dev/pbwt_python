@@ -1,9 +1,9 @@
 import os
 
 
-reference_file = "impute5/test2/testing.vcf.gz"
-target_file = "impute5/test2/target.bcf"
-imputed_file_save_location = "impute5/test2/imputed.bcf"
+reference_file = "impute5/test3/omni4k-10.vcf.gz"
+target_file = "impute5/test3/omni10.vcf.gz"
+imputed_file_save_location = "impute5/test3/imputed.vcf.gz"
 
 impute_region = "20:1000000-4000000"
 

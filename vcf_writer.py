@@ -11,6 +11,7 @@ import vcf
 import os
 import pathlib
 import gzip
+import Bio.bgzf
 
 import vcf_reader
 
@@ -94,13 +95,17 @@ def write_vcf(data,path):
     pathlib.Path("new_test.vcf").unlink(missing_ok=True)
     
     if compressed:
-        op = open(path,"rb")
-        compressed_file = gzip.open(full_path,"wb")
-        compressed_file.writelines(op)
-        compressed_file.close()
-        op.close()
-        
+        with open(path,"rb") as op:
+              with Bio.bgzf.BgzfWriter(full_path,"wb") as compressed_file:
+                  
+                  read_all = op.read()
+                  
+                  print(read_all)
+                  
+                  compressed_file.write(read_all)
+                  
         pathlib.Path(path).unlink(missing_ok=True)
+        
     
     
 def filter_vcf(vcf_path,keep_locations,save_path):
@@ -198,12 +203,15 @@ def filter_vcf(vcf_path,keep_locations,save_path):
     pathlib.Path("intermediate.vcf").unlink(missing_ok=True)
     
     if compressed:
-        op = open(save_path,"rb")
-        compressed_file = gzip.open(full_path,"wb")
-        compressed_file.writelines(op)
-        compressed_file.close()
-        op.close()
-        
+        with open(save_path,"rb") as op:
+              with Bio.bgzf.BgzfWriter(full_path,"wb") as compressed_file:
+                  
+                  read_all = op.read()
+                  
+                  print(read_all)
+                  
+                  compressed_file.write(read_all)
+                  
         pathlib.Path(save_path).unlink(missing_ok=True)
         
         
