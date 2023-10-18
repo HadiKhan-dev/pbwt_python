@@ -6,7 +6,8 @@ import numpy as np
 import xgboost as xgb
 #%%
 
-
+genetic_map = pbwt_methods.read_genetic_map("genetic_map/hg38_genetic_map.txt.gz")
+#%%
 omni_data = vcf_reader.get_vcf_data()
 omni_tests = vcf_reader.get_vcf_data("../pbwt_hkhan/vcf_data/omni10.vcf.gz")
 #%%

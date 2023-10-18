@@ -15,8 +15,100 @@ import itertools
 import psutil
 import os
 import functools
+import gzip
+import pandas as pd
+import csv
+
+
 np.set_printoptions(threshold=sys.maxsize)
 
+
+#%%
+class RecombinationMap:
+    """
+    Data structure to represent a recombination map
+    """
+    def __init__(self,recomb_dict):
+        self.recombination_data = recomb_dict
+        
+    def get_chromosome_map(self,chromosome_id):
+        """
+        Accessor for the recombination map for a specific 
+        chromosome if it exists, otherwise returns a generic map
+        """
+        if chromosome_id in self.recombination_data.keys():
+            return self.recombination_data[chromosome_id]
+        else:
+            return RecombinationListsChr([],[])
+        
+    def get_centimorgan_distance(self,chromosome,first_pos,second_pos):
+        """
+        Returns the centimorgan distance between the input positions
+        on the specified chromosome, uses the approximation 1cM = 1M bp
+        if the chromosome does not exist in the recombination map
+        """
+        recomb_map = self.get_chromosome_map(chromosome)
+        
+        first_val = recomb_map.get_recomb_amount(first_pos)
+        second_val = recomb_map.get_recomb_amount(second_pos)
+        
+        return second_val-first_val
+        
+class RecombinationListsChr:
+    """
+    The recombination map for a single chromosome
+    """
+    def __init__(self,position_list,genetic_map,recomb_rates=None):
+        self.position_markers = list(position_list)
+        self.genetic_map = list(genetic_map)
+        
+        try:
+            self.recombination_rates = list(recomb_rates)
+        except:
+            self.recombination_rates = None
+            
+    def get_recomb_amount(self,position):
+        """
+        Returns the cumulative recombination amount for a position in the 
+        chromosome
+        """
+        
+        num_markers = len(self.position_markers)
+        
+        index = np.searchsorted(self.position_markers,position,"right")
+
+        if index == 0:
+            baseline = 0
+            extra_distance = position
+        else:
+            baseline = self.genetic_map[index-1]
+            extra_distance = position-self.position_markers[index-1]
+            
+        if index == num_markers:
+            recomb_rate = 1.0
+        else:
+            if self.recombination_rates is not None:
+                recomb_rate = self.recombination_rates[index]
+            else:
+                if index == 0:
+                    start = 0
+                    start_map = 0
+                else:
+                    start = self.position_markers[index-1]
+                    start_map = self.genetic_map[index-1]
+                
+                end = self.position_markers[index]
+                end_map = self.genetic_map[index]
+                
+                recomb_rate = (10**6)*(end_map-start_map)/(end-start)
+                
+        recomb_value = baseline+(10**-6)*extra_distance*recomb_rate
+
+        return recomb_value        
+        
+        
+            
+        
 
 #%%
 class InsertionData:
@@ -88,6 +180,35 @@ def degrade_data(data_array,degradation_rate):
     
     return degraded
 
+#%%
+def read_genetic_map(genetic_map_path):
+    """
+    Read a .gz compressed file containing a genetic recombination
+    rates map for a species, columns should be separated by spaces
+    
+    """
+    
+    data = pd.read_csv(genetic_map_path,sep=" ")
+    
+    data_chromosomal = data.groupby("chr")
+    
+    results_dict = {}
+    
+    
+    for name,chromosome_data in data_chromosomal:
+        
+        chr_positions = chromosome_data["position"]
+        chr_rates = chromosome_data["COMBINED_rate(cM/Mb)"]
+        chr_cumulative_map = chromosome_data["Genetic_Map(cM)"]
+        
+        recomb_data = RecombinationListsChr(chr_positions,chr_cumulative_map,chr_rates)
+
+        
+        results_dict[name] = recomb_data
+    
+    return RecombinationMap(results_dict)
+    
+    
 #%%
 
 def pbwt(data_array,fm_gap=100):   
