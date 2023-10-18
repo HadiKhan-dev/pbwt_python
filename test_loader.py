@@ -40,24 +40,27 @@ for item in common_sites:
     site_intersection.append(vcf_reader.ChromPos("20",item))
 
 index_keep = []
+positions_kept = []
 
 for thing in site_intersection:
     index_keep.append(full_sites[1][thing.position])
+    positions_kept.append(int(thing.position))
 
 index_keep = sorted(index_keep)    
+positions_kept = sorted(positions_kept)
 
 set_keep = set(index_keep)
 
 keep_flags = []
 
-for i in range(len(omni_data[0])):
+for i in range(len(omni_data[1][0])):
     if i in set_keep:
         keep_flags.append(1)
     else:
         keep_flags.append(0)
     
 #%%
-omni_pbwts = pbwt_methods.get_dual_spaced_pbwt(omni_data,keep_flags,100)
+omni_pbwts = pbwt_methods.get_dual_spaced_pbwt(omni_data[1][1],keep_flags,100)
 #reduced_pbwts = pbwt_methods.get_dual_spaced_pbwt(omni_other,keep_flags,100)
 #%%
 def seq_to_prediction_data(dual_spaced_pbwt,seq_to_insert):
@@ -234,10 +237,17 @@ models = ["./xgboost_models/test_model_5.json",
 #%%
 
 
-imputed = impute_full(omni_pbwts,omni_tests,bins,models)
+imputed = impute_full(omni_pbwts,omni_tests[1][1],bins,models)
 
 #%%
-pbwt_methods.compare_results(imputed,omni_tests,omni_pbwts.forward_pbwt.allele_freqs,
+
+impute5_data = vcf_reader.get_vcf_data("impute5/test3/sandbox/testing_full.vcf.gz")
+#%%
+pbwt_methods.compare_results(imputed,omni_tests[1][1],omni_pbwts.forward_pbwt.allele_freqs,
+                omni_pbwts.forward_pbwt.update_flags,bins)
+#%%
+
+pbwt_methods.compare_results(impute5_data[1][1],omni_tests[1][1],omni_pbwts.forward_pbwt.allele_freqs,
                 omni_pbwts.forward_pbwt.update_flags,bins)
 #%%
 

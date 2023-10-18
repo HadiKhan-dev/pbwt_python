@@ -32,7 +32,10 @@ def get_vcf_names(vcf_path):
     return vcf_names
 
 def vcf_col_to_genotype_rows(vcf_col):
-    full = vcf_col.str.split("|",expand=True)
+    
+    genotype_data = vcf_col.str.split(":").apply(lambda x: x[0])
+    
+    full = genotype_data.str.split("|",expand=True)
     
     return [np.array([full[0]]).astype("int8"),np.array([full[1]]).astype("int8")]
     

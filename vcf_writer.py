@@ -12,7 +12,7 @@ import os
 import pathlib
 import gzip
 import Bio.bgzf
-
+import gzip
 import vcf_reader
 
 np.set_printoptions(threshold=sys.maxsize)
@@ -48,6 +48,9 @@ def write_vcf(data,path):
 
     file_to_write = open('new_test.vcf', 'w')
     file_to_write.write("##fileformat=VCFv4.2\n")
+    file_to_write.write("##INFO=<ID=AC,Number=A,Type=Integer,Description=\"Allele count in genotypes\">")
+    file_to_write.write("##INFO=<ID=AN,Number=1,Type=Integer,Description=\"Total number of alleles in called genotypes\">")
+    file_to_write.write("##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">")
     file_to_write.write("#CHROM	POS ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	")
 
     for idx in range(num_diploid):
@@ -106,7 +109,7 @@ def write_vcf(data,path):
                   
         pathlib.Path(path).unlink(missing_ok=True)
         
-    
+#%%
     
 def filter_vcf(vcf_path,keep_locations,save_path):
     """
@@ -208,12 +211,110 @@ def filter_vcf(vcf_path,keep_locations,save_path):
                   
                   read_all = op.read()
                   
-                  print(read_all)
-                  
                   compressed_file.write(read_all)
                   
         pathlib.Path(save_path).unlink(missing_ok=True)
         
+#%%
+def fix_ref_alt(vcf_path,save_path):
+    """
+    Some programs (like IMPUTE5) ignore markers if the reference 
+    or alternate allele is missing at those markers, this function
+    adds 'A' at any missing location so that those markers are 
+    considered as well
+
+    """
+    
+    if save_path[-3:] == ".gz":
+        compressed = True
+        full_path = save_path
+        save_path = save_path[:-3]
+
+    
+    names = vcf_reader.get_vcf_names(vcf_path)
+    
+    format_index = names.index("FORMAT")
+    
+    sample_names = names[format_index+1:]
+    
+
+    vm = gzip.open(vcf_path)
+    lines = vm.readlines()
+    vm.close()
+    
+    comments = []
+    
+    for line in lines:
+        if line[:2] == b"##":
+            comments.append(line)
+    comments.append(b"##File filtered to keep only a portion of sites\n")
+    
+    pathlib.Path("intermediate.vcf").unlink(missing_ok=True)
+    
+    file_to_write = open("intermediate.vcf", 'w')    
+    
+    for comment in comments:
+        file_to_write.write(comment.decode("utf-8"))
+    
+    for name in names:
+        file_to_write.write(str(name)+"	")
+    file_to_write.write("\n")
+    file_to_write.close()
+    
+    vcf_df = vcf_reader.get_raw_vcf_data(vcf_path)[1]
+    
+    read = vcf.Reader(open("intermediate.vcf", 'r'))
+    write = vcf.Writer(open(save_path, 'w'), read)
+    
+    call_tuple = vcf.model.make_calldata_tuple(["GT"])
+    
+    for index,row in vcf_df.iterrows():
+
+        if row["ALT"] != ".":
+            alter = vcf.model._Substitution(row["ALT"])
+        else:
+            alter = vcf.model._Substitution("A")
+            
+        if row["REF"] != ".":
+            ref_to_use = row["REF"]
+        else:
+            ref_to_use = "A"
+            
+        sample_vals = []
         
-
-
+        for name in sample_names:
+            
+            call_str = row[name]
+            call_data = call_tuple(call_str)
+            call = vcf.model._Call(row["POS"],name,call_data)
+            
+            sample_vals.append(call)
+        
+        info_dict = {}
+        
+        for info in row["INFO"].split(";"):
+            key,value = info.split("=")
+            if key == "AC":
+                info_dict[key] = [value]
+            else:
+                info_dict[key] = value
+            
+        
+        new_row = vcf.model._Record(row["#CHROM"],row["POS"], None, ref_to_use, [alter], None, row["FILTER"], info_dict, row["FORMAT"], sample_names,samples=sample_vals)
+    
+        write.write_record(new_row)
+        
+    write.flush()
+    write.close()
+    pathlib.Path("intermediate.vcf").unlink(missing_ok=True)
+    
+    if compressed:
+        with open(save_path,"rb") as op:
+              with Bio.bgzf.BgzfWriter(full_path,"wb") as compressed_file:
+                  
+                  read_all = op.read()
+                  
+                  
+                  compressed_file.write(read_all)
+                  
+        pathlib.Path(save_path).unlink(missing_ok=True)    
